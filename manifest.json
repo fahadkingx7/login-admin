@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "LogIn",
+  "version": "10.6.2.7",
+  "description": "Share LogIn Admin",
+  "minimum_chrome_version": "120",
+  "permissions": [
+    "cookies",
+    "storage",
+    "browsingData",
+    "management",
+    "declarativeNetRequest",
+    "proxy",
+    "scripting",
+    "tabs",
+    "webNavigation",
+    "webRequest",
+    "webRequestAuthProvider",
+    "alarms"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "LogIn",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon32.png",
+      "32": "icons/icon48.png"
+    }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self';"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5/ukWQ5ADW1Pox50O3zowyiS1EApgjYr+tGGO0ttPOqAOuq5Jp11nqZNs6VEgISBrXLHC7QMiOP/DE36vqQwUOm4+Uyj7NB3SnoUm0PLXAdmj62Pq9kDzPp4ebuVmnaN+gC9d6SaXp0rzBS9szOeqlGQyrY9vTw1zjHTADVtyPyc+cgU57zKkFKrMAMIS880nEjU4ey4NMGvQdYKtoTPBbEMIckuqK1hud0P7X9QBvQ/5YLW1jJacNcHQgQRCXe7/cELcL21NBT9kUWzG+emZhCdAdEM+Tg54j814YeZO0NaoGjX5J0QeQuqvrJy1o/TAbGG7g/ovxjNWjJTAVnYPwIDAQAB",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

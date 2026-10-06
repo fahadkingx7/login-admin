@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <title>LogIn Admin</title>
+  <link rel="stylesheet" href="popup.css">
+<style id="veefivee-footer-visibility">.veefivee-footer{position:fixed!important;left:0!important;right:0!important;bottom:0!important;margin:0!important;padding:12px 20px 14px!important;z-index:99999!important;background:rgba(245,247,251,.97)!important;border-top:1px solid #e5e7ef!important;box-shadow:0 -6px 18px rgba(15,23,42,.05)!important;}</style></head>
+<body>
+
+<!-- Startup -->
+<section id="startup" class="screen"><div class="startup-loader" role="status" aria-label="Loading"><span class="startup-text" id="startupText">Restoring secure session…</span></div></section>
+
+<!-- Suspended -->
+<section id="suspended" class="screen hidden">
+  <div class="state-card">
+    <div class="status-icon warning">!</div>
+    <span class="eyebrow danger-text">Account status</span>
+    <h1>Account suspended</h1>
+    <p>This LogIn Admin account is currently suspended.</p>
+    <button id="retrySuspended" class="btn btn-secondary btn-block">Check again</button>
+  </div>
+</section>
+
+<!-- Locked -->
+<section id="locked" class="screen hidden">
+  <div class="state-card">
+    <div class="status-icon warning">!</div>
+    <span class="eyebrow danger-text">Security</span>
+    <h1>Profile locked</h1>
+    <p id="lockedText">An unauthorized extension was detected.</p>
+    <button id="retryLocked" class="btn btn-secondary btn-block">Check again</button>
+  </div>
+</section>
+
+<!-- Login -->
+<section id="login" class="screen hidden">
+  <div class="state-card login-card">
+    <div class="brand-mark">✓</div>
+    <span class="eyebrow">Secure access</span>
+    <h1>LogIn Admin</h1>
+    <p>Sign in to manage shared login sessions.</p>
+
+    <div class="form-stack">
+      <div class="field">
+        <label for="loginEmail">Email</label>
+        <input id="loginEmail" type="email" autocomplete="username" placeholder="you@example.com">
+      </div>
+      <div class="field">
+        <label for="loginPassword">Password</label>
+        <input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••">
+      </div>
+      <button id="loginBtn" class="btn btn-primary btn-block">Sign in</button>
+      <div id="loginError" class="alert alert-danger hidden"></div>
+    </div>
+  </div>
+</section>
+
+<!-- Main app -->
+<section id="app" class="hidden">
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-mark brand-mark-sm">✓</div>
+      <div class="brand-copy">
+        <strong>LogIn Admin</strong>
+        <span>Share LogIn easily</span>
+      </div>
+    </div>
+    <button id="logout" class="admin-signout" aria-label="Sign out" title="Sign out">Sign out</button>
+  </header>
+
+  <main class="content">
+
+    <div id="statusBanner" class="alert hidden"></div>
+
+    <!-- Account -->
+    <section class="card name-card">
+      <span class="eyebrow">Account</span>
+      <h2 id="adminNameValue">—</h2>
+      <div id="adminEmailValue" class="account-email">—</div>
+    </section>
+
+    <!-- Sharing hero -->
+    <section class="card hero-card">
+      <div class="hero-main">
+        <span class="eyebrow">Sharing</span>
+        <h2 id="currentSite">No website selected</h2>
+        <p id="currentSiteMeta">Open a website and choose Share Login.</p>
+      </div>
+      <span id="siteBadge" class="sharing-status">Sharing</span>
+    </section>
+
+    <!-- Primary action -->
+    <section class="primary-action-wrap">
+      <button id="pushCurrent" class="btn btn-primary btn-xl btn-block">
+        Share Login
+      </button>
+
+      <!-- Preserved for existing JS compatibility; hidden by design. -->
+      <button id="addCurrent" class="visually-hidden-control" aria-hidden="true" tabindex="-1">
+        Add Current Website
+      </button>
+    </section>
+
+    <!-- Refresh all client browsers -->
+    <section class="admin-refresh-users">
+      <button id="refreshUsers" class="btn chrome-fix-btn" type="button">Refresh Users</button>
+    </section>
+
+    <!-- Proxy -->
+    <section class="card">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">Network</span>
+          <h2>Proxy status</h2>
+          <p>One proxy for this entire Admin.</p>
+        </div>
+        <span id="proxyBadge" class="badge badge-success"><span class="dot"></span>Connected</span>
+      </div>
+
+      <div class="metric-grid">
+        <div class="metric">
+          <span>IP Address</span>
+          <strong id="proxyAddress">—</strong>
+        </div>
+        <div class="metric">
+          <span>Port</span>
+          <strong id="proxyIp">—</strong>
+        </div>
+      </div>
+
+      <div class="stack-buttons">
+        <button id="openProxy" class="btn btn-secondary btn-block">Change Proxy / IP</button>
+        <button id="reconnectProxy" class="btn btn-secondary btn-block">Reconnect / Check</button>
+      </div>
+
+      <div id="proxyInfo" class="alert alert-info">Checking saved proxy…</div>
+    </section>
+
+    <!-- Sites -->
+    <section class="card">
+      <div class="section-heading section-heading-compact">
+        <div>
+          <span class="eyebrow">Sharing</span>
+          <h2>Shared websites</h2>
+        </div>
+        <span id="siteCount" class="count-badge">0</span>
+      </div>
+
+      <div class="field">
+        <label for="siteSelect">Website</label>
+        <select id="siteSelect" class="control">
+          <option value="">No managed websites</option>
+        </select>
+      </div>
+
+      <div class="site-actions">
+        <button id="removeSite" class="btn btn-danger-outline">Remove selected</button>
+      </div>
+    </section>
+
+    <!-- Restrictions -->
+    <section class="card">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">Restrictions</span>
+          <h2>Blocked URLs</h2>
+          <p>Control which URL patterns are restricted.</p>
+        </div>
+      </div>
+
+      <div class="inline-form">
+        <div class="field field-grow">
+          <label for="urlInput">URL pattern</label>
+          <input id="urlInput" class="control" placeholder="https://site.com/private/*">
+        </div>
+        <button id="addUrl" class="btn btn-secondary inline-add">Add</button>
+      </div>
+
+      <div id="urlList" class="url-list"></div>
+
+      <button id="saveUrls" class="btn btn-primary btn-block">Save URL Rules</button>
+    </section>
+
+    <div class="footer">2026 LogIn <b>Beta Version</b>. All rights reserved</div>
+  </main>
+</section>
+
+<!-- Proxy modal -->
+<div id="proxyModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Change Proxy">
+  <div class="modal-card">
+    <div class="modal-head">
+      <div>
+        <span class="eyebrow">Network</span>
+        <h2>Change Proxy / IP</h2>
+        <p>Saved proxy settings are restored on startup.</p>
+      </div>
+      <button id="cancelProxy" class="icon-btn" aria-label="Close">×</button>
+    </div>
+
+    <div class="modal-grid">
+      <div class="field">
+        <label for="proxyHost">Host / IP</label>
+        <input id="proxyHost" class="control">
+      </div>
+      <div class="field">
+        <label for="proxyPort">Port</label>
+        <input id="proxyPort" class="control" inputmode="numeric">
+      </div>
+      <div class="field">
+        <label for="proxyScheme">Protocol</label>
+        <select id="proxyScheme" class="control">
+          <option value="http">HTTP</option>
+          <option value="https">HTTPS</option>
+          <option value="socks4">SOCKS4</option>
+          <option value="socks5">SOCKS5</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="expectedIp">Expected public IP</label>
+        <input id="expectedIp" class="control" placeholder="Optional">
+      </div>
+      <div class="field">
+        <label for="proxyUser">Username</label>
+        <input id="proxyUser" class="control" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="proxyPass">Password</label>
+        <input id="proxyPass" class="control" type="password" autocomplete="off">
+      </div>
+    </div>
+
+    <div id="proxyError" class="alert alert-danger hidden"></div>
+    <button id="saveProxy" class="btn btn-primary btn-block">Save &amp; Apply Proxy</button>
+  </div>
+</div>
+
+<!-- Refresh users confirmation -->
+<div id="refreshUsersModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="refreshUsersTitle" aria-describedby="refreshUsersDescription">
+  <div class="modal-card refresh-users-modal-card">
+    <div class="modal-head">
+      <div>
+        <span class="eyebrow">Browser cleanup</span>
+        <h2 id="refreshUsersTitle">Refresh all users?</h2>
+        <p id="refreshUsersDescription">This will clean cookies, site data, cache and browsing history on every connected Client device, close all open tabs, and then automatically sync the latest shared login back to each clean browser.</p>
+      </div>
+      <button id="cancelRefreshUsersX" class="icon-btn" aria-label="Close">×</button>
+    </div>
+    <div class="refresh-users-note">This action affects all connected Client devices for this Admin.</div>
+    <div class="modal-actions refresh-users-actions">
+      <button id="cancelRefreshUsers" class="btn btn-secondary">Cancel</button>
+      <button id="confirmRefreshUsers" class="btn btn-primary">Refresh Users</button>
+    </div>
+  </div>
+</div>
+
+<script src="shared/config.js"></script>
+<script src="shared/util.js"></script>
+<script src="shared/store.js"></script>
+<script src="shared/firebase.js"></script>
+<script src="shared/auth.js"></script>
+<script src="shared/crypto.js"></script>
+<script src="shared/cookies.js"></script>
+<script src="shared/proxy.js"></script>
+<script src="shared/rules.js"></script>
+<script src="shared/security.js"></script>
+<script src="shared/sync.js"></script>
+<script src="popup.js"></script>
+<footer class="veefivee-footer" style="box-sizing:border-box;width:100%;margin:40px auto 0;padding:16px 20px 18px;text-align:center;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px;font-weight:500;line-height:1.5;color:#6d4aff;letter-spacing:.1px;">Developed by 🌴<a href="https://veefivee.com" target="_blank" rel="noopener noreferrer" style="color:#6d4aff;text-decoration:none;font-weight:700;">VeeFivee</a></footer>
+
+<script src="modern-scrollbar.js"></script>
+</body>
+</html>
