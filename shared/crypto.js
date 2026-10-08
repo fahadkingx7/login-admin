@@ -1,10 +1,21 @@
 globalThis.CS = globalThis.CS || {};
 CS.Crypto = (() => {
   const enc = new TextEncoder(), dec = new TextDecoder();
-  const b64 = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes)));
+  const b64 = bytes => {
+    const data=new Uint8Array(bytes);
+    let binary='';
+    for(let i=0;i<data.length;i+=32768)binary+=String.fromCharCode(...data.subarray(i,i+32768));
+    return btoa(binary);
+  };
   const unb64 = s => Uint8Array.from(atob(String(s)), c => c.charCodeAt(0));
 
+  let identityPromise=null;
   async function ensureDeviceIdentity(){
+    if(identityPromise)return identityPromise;
+    identityPromise=loadOrCreateDeviceIdentity();
+    try{return await identityPromise;}finally{identityPromise=null;}
+  }
+  async function loadOrCreateDeviceIdentity(){
     const r=await CS.Store.get('deviceIdentity');
     if(r.deviceIdentity?.deviceId) return r.deviceIdentity;
     const identity={deviceId:CS.Util.uuid(),createdAt:CS.Util.now()};

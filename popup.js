@@ -16,7 +16,17 @@ chrome.runtime.onMessage.addListener(msg=>{
   const cookies=Number(e.cookies||0);
   toast(`Login updated • ${cookies} cookies synced`);
 });
-function show(id){['startup','login','app','suspended','locked'].forEach(x=>$(x).classList.toggle('hidden',x!==id))}
+function show(id){['startup','connectivity','login','app','suspended','locked'].forEach(x=>$(x).classList.toggle('hidden',x!==id))}
+function isConnectivityError(message){
+  const m=String(message||'').toLowerCase();
+  return navigator.onLine===false || m.includes('could not reach supabase') || m.includes('supabase request timed out') || m.includes('network error') || m.includes('failed to fetch') || m.includes('check your internet connection') || m.includes('internet connection') || m.includes('proxy health request') || m.includes('proxy connection') || m.includes('proxy could not be restored') || m.includes('proxy is not working') || m.includes('could not connect');
+}
+function showConnectivity(){
+  const e=$('connectivityText');
+  if(e)e.textContent='Internet or proxy may not be working. Please check your connection or proxy and try again.';
+  show('connectivity');
+}
+
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
 function setAdminFooterName(profile){const e=$('adminNameValue');const em=$('adminEmailValue');const name=String(profile?.displayName||profile?.name||'').trim();const email=String(profile?.email||'').trim();if(e)e.textContent=name||'—';if(em)em.textContent=email||'—';}
 function renderSites(){const s=$('siteSelect');s.innerHTML='';if(!sites.length){s.innerHTML='<option value="">No managed websites</option>';site=null;$('siteCount').textContent='0';$('removeSite').disabled=true;return}sites.forEach(x=>{const o=document.createElement('option');o.value=x.id;o.textContent=x.name||x.hostname;s.appendChild(o)});if(site)s.value=site.id;$('siteCount').textContent=String(sites.length);$('removeSite').disabled=!site}
@@ -42,13 +52,19 @@ function renderProxy(){
   $('proxyAddress').textContent=configured ? String(p.host) : '—';
   $('proxyIp').textContent=configured ? String(p.port) : '—';
 
-  const working=(configured && p.healthy===true) || !hasConfirmedError;
+  const working=!!configured && p.healthy===true && !hasConfirmedError;
+  const checking=!!configured && !hasConfirmedError && p.healthy!==true;
   const badge=$('proxyBadge'),info=$('proxyInfo');
   if(working){
     badge.className='badge good';
     badge.innerHTML='<span class="dot"></span>Connected';
     info.className='alert good';
     info.textContent='Browser is using the saved proxy.';
+  }else if(checking){
+    badge.className='badge warn';
+    badge.innerHTML='<span class="dot"></span>Checking';
+    info.className='alert info';
+    info.textContent='Proxy verification is pending.';
   }else{
     badge.className='badge bad';
     badge.innerHTML='<span class="dot"></span>Not Working';
@@ -57,18 +73,28 @@ function renderProxy(){
   }
 }
 
-function renderUrls(){$('urlList').innerHTML=blocked.map((u,i)=>`<div class="url"><code>${esc(u)}</code><button class="x" onclick="removeUrl(${i})">×</button></div>`).join('')}
-function isInternetError(message){const m=String(message||'').toLowerCase();return navigator.onLine===false || m.includes('could not reach firebase') || m.includes('firebase request timed out') || m.includes('network error') || m.includes('failed to fetch') || m.includes('check your internet connection') || m.includes('internet connection');}
+function renderUrls(){
+  const list=$('urlList');list.innerHTML='';
+  blocked.forEach((url,index)=>{
+    const row=document.createElement('div');row.className='url';
+    const code=document.createElement('code');code.textContent=url;
+    const button=document.createElement('button');button.className='x';button.type='button';
+    button.textContent='×';button.setAttribute('aria-label','Remove blocked URL');
+    button.addEventListener('click',()=>{blocked.splice(index,1);renderUrls();});
+    row.appendChild(code);row.appendChild(button);list.appendChild(row);
+  });
+}
+function isInternetError(message){const m=String(message||'').toLowerCase();return navigator.onLine===false || m.includes('network error') || m.includes('failed to fetch') || m.includes('check your internet connection') || m.includes('internet connection');}
 function showConnectivityFailure(message){
   const existing=proxy||{};
-  const text=navigator.onLine===false || /firebase|internet|network|timed out|failed to fetch/i.test(String(message||''))
+  const text=navigator.onLine===false || /supabase|internet|network|timed out|failed to fetch/i.test(String(message||''))
     ? "Can't connect to the internet."
     : (String(message||'Proxy connection failed.'));
   proxy={...existing,mode:existing.mode||'fixed_servers',healthy:false,lastError:text,lastCheckedAt:new Date().toISOString()};
   renderProxy();
 }
-async function refresh(){const r=await send('refresh');if(!r.ok){if(isInternetError(r.error)){showConnectivityFailure(r.error);return}return toast(r.error||'Refresh failed.');}setAdminFooterName(r.profile);sites=r.sites||[];site=r.site||null;proxy=r.proxy||proxy||null;renderSites();renderSite();renderProxy();show('app')}
-$('loginBtn').onclick=async()=>{const b=$('loginBtn');const e=$('loginEmail').value.trim(),p=$('loginPassword').value;if(!e||!p){$('loginError').textContent='Enter email and password.';$('loginError').classList.remove('hidden');return}busy(b,true,'Signing in…');try{const r=await send('login',{email:e,password:p},20000);if(r.suspended)return show('suspended');if(!r.ok){$('loginError').textContent=r.error||'Sign in failed.';$('loginError').classList.remove('hidden');return}setAdminFooterName(r.profile);sites=r.sites||[];site=r.site||null;proxy=r.proxy||null;renderSites();renderSite();renderProxy();show('app')}finally{busy(b,false,'Sign in')}};
+async function refresh(){const r=await send('refresh');if(!r.ok){if(isConnectivityError(r.error)){showConnectivity();return}return toast(r.error||'Refresh failed.');}setAdminFooterName(r.profile);sites=r.sites||[];site=r.site||null;proxy=r.proxy||proxy||null;renderSites();renderSite();renderProxy();show('app')}
+$('loginBtn').onclick=async()=>{const b=$('loginBtn');const e=$('loginEmail').value.trim(),p=$('loginPassword').value;if(!e||!p){$('loginError').textContent='Enter email and password.';$('loginError').classList.remove('hidden');return}busy(b,true,'Signing in…');try{const r=await send('login',{email:e,password:p},20000);if(r.suspended)return show('suspended');if(!r.ok){if(isConnectivityError(r.error))return showConnectivity();$('loginError').textContent=r.error||'Sign in failed.';$('loginError').classList.remove('hidden');return}setAdminFooterName(r.profile);sites=r.sites||[];site=r.site||null;proxy=r.proxy||null;renderSites();renderSite();renderProxy();show('app')}finally{busy(b,false,'Sign in')}};
 $('logout').onclick=async()=>{const b=$('logout');busy(b,true,'Signing out…');try{await send('logout')}finally{busy(b,false,'Sign out');show('login')}};
 $('retrySuspended').onclick=refresh;
 $('retryLocked').onclick=()=>send('warning-check').then(r=>r.ok?refresh():show('locked'));
@@ -100,13 +126,35 @@ $('openProxy').onclick=()=>{$('proxyError').classList.add('hidden');proxyDirty=f
 $('cancelProxy').onclick=()=>$('proxyModal').classList.add('hidden');
 ['proxyHost','proxyPort','proxyScheme','proxyUser','proxyPass','expectedIp'].forEach(id=>$(id).addEventListener('input',()=>proxyDirty=true));
 $('saveProxy').onclick=async()=>{const b=$('saveProxy');$('proxyError').classList.add('hidden');busy(b,true,'Applying…');const raw={mode:'fixed_servers',scheme:$('proxyScheme').value,host:$('proxyHost').value.trim(),port:Number($('proxyPort').value),username:$('proxyUser').value,password:$('proxyPass').value,expectedIp:$('expectedIp').value.trim()};const r=await send('save-proxy',{proxy:raw},25000);busy(b,false,'Save & Apply Proxy');if(!r.ok){$('proxyError').textContent=r.error||'Proxy failed.';$('proxyError').classList.remove('hidden');return}proxy=r.proxy||proxy;proxyDirty=false;$('proxyModal').classList.add('hidden');renderProxy();toast(r.health?.ok?'Proxy connected.':'Proxy saved but is not working.')};
-$('reconnectProxy').onclick=async()=>{const b=$('reconnectProxy');busy(b,true,'Checking…');const r=await send('reconnect-proxy',{},25000);busy(b,false,'↻ Reconnect / Check');if(!r.ok&&r.proxy===undefined)return toast(r.error||'Proxy check failed.');proxy=r.proxy||proxy;renderProxy();toast(r.health?.ok?'Proxy connected.':'Proxy is not working.')};
-$('addUrl').onclick=()=>{const v=$('urlInput').value.trim();if(!v)return;if(!/^https?:\/\//i.test(v))return toast('Use an http:// or https:// URL pattern.');blocked.push(v);$('urlInput').value='';renderUrls()};window.removeUrl=i=>{blocked.splice(i,1);renderUrls()};$('saveUrls').onclick=async()=>{const r=await send('save-blocked',{patterns:blocked});if(!r.ok)return toast(r.error);site=r.site;sites=sites.map(s=>s.id===site.id?site:s);renderSite();toast('Blocked URL rules saved')};
+$('reconnectProxy').onclick=async()=>{const b=$('reconnectProxy');busy(b,true,'Checking…');const r=await send('reconnect-proxy',{},25000);busy(b,false,'↻ Reconnect / Check');if(!r.ok&&r.proxy===undefined&&isConnectivityError(r.error))return showConnectivity();if(!r.ok&&r.proxy===undefined)return toast(r.error||'Proxy check failed.');proxy=r.proxy||proxy;renderProxy();toast(r.health?.ok?'Proxy connected.':'Proxy is not working.')};
+$('addUrl').onclick=()=>{const v=$('urlInput').value.trim();if(!v)return;if(!/^https?:\/\//i.test(v))return toast('Use an http:// or https:// URL pattern.');blocked.push(v);$('urlInput').value='';renderUrls()};window.removeUrl=i=>{blocked.splice(i,1);renderUrls()};$('saveUrls').onclick=async()=>{if(!site)return toast('Select a managed website first.',true);const r=await send('save-blocked',{patterns:blocked});if(!r.ok||!r.site)return toast(r.error||'Could not save blocked URLs.',true);site=r.site;sites=sites.map(s=>s.id===site.id?site:s);renderSite();toast('Blocked URL rules saved')};
+
+$('checkAgainConnectivity')?.addEventListener('click',async()=>{
+  const b=$('checkAgainConnectivity');
+  if(!b || b.disabled)return;
+  const started=performance.now();
+  b.classList.add('connectivity-checking');
+  b.setAttribute('aria-busy','true');
+  busy(b,true,'Checking…');
+  try{if(typeof startup==='function')await startup();else window.location.reload();}catch(e){showConnectivity();}
+  finally{
+    const wait=Math.max(0,450-(performance.now()-started));
+    if(wait)await new Promise(r=>setTimeout(r,wait));
+    if(b){
+      busy(b,false,'Check again');
+      b.classList.remove('connectivity-checking');
+      b.removeAttribute('aria-busy');
+    }
+  }
+});
+window.addEventListener('offline',()=>showConnectivity());
 (async()=>{
   show('startup');
+  if(navigator.onLine===false)return showConnectivity();
   const r=await send('bootstrap',{},10000);
+  if(!r.ok&&isConnectivityError(r.error))return showConnectivity();
+  if(r.suspended || r.suspendedReason)return show('suspended');
   if(r.lockReason){$('lockedText').textContent=r.lockReason;return show('locked')}
-  if(r.suspendedReason)return show('suspended');
   if(r.session&&r.profile?.role==='subadmin'){
     setAdminFooterName(r.profile);
     sites=r.sites||[];site=r.site||null;proxy=r.proxy||proxy||null;

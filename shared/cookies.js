@@ -22,10 +22,7 @@ CS.Cookies = (() => {
     return JSON.stringify([c.name,c.domain,c.path,c.partitionKey||null,c.storeId||'']);
   }
   function syncScopeHostname(hostname) {
-    const host=String(hostname||'').replace(/^\./,'').trim().toLowerCase();
-    if(!host)return '';
-    const parts=host.split('.').filter(Boolean);
-    return parts.length>=3 ? parts.slice(-2).join('.') : host;
+    return CS.Util.scopeHostname(hostname);
   }
 
   function getAllCookies(details={}) {
@@ -46,7 +43,7 @@ CS.Cookies = (() => {
     if(!scope)return [];
     const seen=new Map();
     const add=c=>{
-      if(!c)return;
+      if(!c || !CS.Util.hostnameMatches(scope,String(c.domain||'').replace(/^\./,'')))return;
       const k=JSON.stringify([c.name||'',c.domain||'',c.path||'/',c.partitionKey||null,c.storeId||'']);
       if(!seen.has(k))seen.set(k,c);
     };
@@ -93,8 +90,18 @@ CS.Cookies = (() => {
     });
   }
   async function reconcile(site, records) {
+    if(!Array.isArray(records))throw new Error('Invalid cookie snapshot.');
+    const scope=syncScopeHostname(site?.hostname);
+    for(const c of records){
+      let url;
+      try{url=new URL(String(c?.url||''));}catch{throw new Error('Invalid cookie URL in snapshot.');}
+      const domain=String(c?.domain||url.hostname).replace(/^\./,'');
+      if(!scope || !['http:','https:'].includes(url.protocol) || !CS.Util.hostnameMatches(scope,url.hostname) || !CS.Util.hostnameMatches(scope,domain)){
+        throw new Error('Cookie snapshot contains a domain outside the managed website.');
+      }
+    }
     const current=await getForSite(site);
-    const desired=new Map(records.map(key));
+    const desired=new Set(records.map(key));
     let removed=0, set=0, failed=0;
     const errors=[];
 

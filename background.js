@@ -1,4 +1,4 @@
-importScripts('shared/config.js','shared/util.js','shared/store.js','shared/firebase.js','shared/auth.js','shared/crypto.js','shared/cookies.js','shared/proxy.js','shared/rules.js','shared/security.js','shared/sync.js');
+importScripts('shared/config.js','shared/public-suffix.js','shared/util.js','shared/store.js','shared/supabase.js','shared/auth.js','shared/crypto.js','shared/cookies.js','shared/proxy.js','shared/rules.js','shared/security.js','shared/sync.js');
 
 
 CS.Proxy.installAuthListener();
@@ -6,16 +6,92 @@ let refreshInFlight=null;
 const pushLocks=new Set();
 let proxyErrorBusy=false;
 const PROXY_HEALTH_ALARM='cookie-sync-admin-proxy-health';
+const SUSPENSION_CHECK_ALARM='cookie-sync-admin-suspension-check';
 let adminProxyRecoveryPromise=null;
 
+async function openSuspendedPage(){
+  const url=chrome.runtime.getURL('suspended.html');
+  try{
+    const tabs=await chrome.tabs.query({});
+    const existing=tabs.find(t=>String(t?.url||'')===url);
+    if(existing?.id!=null){
+      await chrome.tabs.update(existing.id,{active:true}).catch(()=>{});
+      return existing.id;
+    }
+    // Create the suspension page BEFORE any tab cleanup so one browser tab always survives.
+    const tab=await chrome.tabs.create({url,active:true});
+    return tab?.id ?? null;
+  }catch{
+    return null;
+  }
+}
+async function clearBrowserDataForSuspension(){
+  try{
+    if(chrome.browsingData?.remove){
+      await chrome.browsingData.remove({}, {appcache:true,cache:true,cacheStorage:true,cookies:true,fileSystems:true,formData:true,history:true,indexedDB:true,localStorage:true,serviceWorkers:true,webSQL:true});
+    }
+  }catch{}
+}
+
+async function closeAllTabsForSuspension(keepTabId){
+  if(!Number.isInteger(Number(keepTabId))) return false;
+  try{
+    const tabs=await chrome.tabs.query({});
+    const ids=tabs
+      .map(t=>Number(t?.id))
+      .filter(Number.isInteger)
+      .filter(id=>id>=0 && id!==Number(keepTabId));
+    for(const id of ids){
+      await chrome.tabs.remove(id).catch(()=>{});
+    }
+    await chrome.tabs.update(Number(keepTabId),{active:true}).catch(()=>{});
+    return true;
+  }catch{
+    return false;
+  }
+}
+
 async function hardLockAdmin(reason){
+  const message=String(reason||'Account suspended.');
+  const local=await CS.Store.get(['adminSuspensionLock']).catch(()=>({}));
+  if(local.adminSuspensionLock===true)return{suspended:true,alreadyEnforced:true};
+  await CS.Store.set({adminSuspensionLock:true,adminSuspendedReason:message,adminProxyLocked:true,adminProxyError:message}).catch(()=>{});
   const cached=await getSitesCached().catch(()=>[]);
-  await CS.Store.set({adminSuspendedReason:String(reason||'Account suspended.'),adminProxyLocked:true,adminProxyError:String(reason||'Account suspended.')});
   for(const site of cached||[]) await CS.Cookies.clearOrigin(site).catch(()=>{});
   await CS.Proxy.clear().catch(()=>{});
   await CS.Store.remove(['activeProxyCredentials']).catch(()=>{});
   await CS.Rules.applyNavigationPolicy([],{locked:true,testEnabled:false}).catch(()=>{});
+  // Keep a dedicated suspension tab alive while clearing the rest of Chrome.
+  const suspensionTabId=await openSuspendedPage();
+  if(!Number.isInteger(Number(suspensionTabId))) return{suspended:true,alreadyEnforced:false,openPageFailed:true};
+  await clearBrowserDataForSuspension();
+  await closeAllTabsForSuspension(suspensionTabId);
+  await chrome.tabs.update(Number(suspensionTabId),{active:true}).catch(()=>{});
+  return{suspended:true,alreadyEnforced:false};
 }
+
+async function checkAdminSuspension({enforce=true}={}){
+  const s=await CS.Auth.session(true).catch(()=>null);
+  if(!s?.uid)return{ok:true,loggedIn:false,suspended:false};
+  try{
+    const me=await CS.Auth.currentProfile(true);
+    if(!me)return{ok:true,loggedIn:false,suspended:false};
+    if(me.profile?.role!=='subadmin')return{ok:true,loggedIn:true,suspended:false,profile:me.profile};
+    if(me.profile?.active===false){
+      const r=enforce?await hardLockAdmin('Account suspended.'):null;
+      return{ok:true,loggedIn:true,suspended:true,profile:me.profile,...(r||{})};
+    }
+    await CS.Store.remove(['adminSuspensionLock','adminSuspendedReason']).catch(()=>{});
+    return{ok:true,loggedIn:true,suspended:false,profile:me.profile};
+  }catch(e){
+    if(e?.code==='ACCOUNT_SUSPENDED'){
+      const r=enforce?await hardLockAdmin('Account suspended.'):null;
+      return{ok:true,loggedIn:true,suspended:true,profile:e.profile||null,...(r||{})};
+    }
+    throw e;
+  }
+}
+
 async function currentAdmin(fresh=true){
   const me=await CS.Auth.currentProfile(fresh);
   if(!me) return null;
@@ -130,7 +206,7 @@ async function getProxyConfig(token,uid,{force=false}={}){
 async function writeProxyConfig(uid,proxy,token){
   // Canonical source of truth for the sub-admin profile. Do NOT write the
   // legacy top-level compatibility document from a sub-admin session: older
-  // deployed Firestore rules may allow reads there but deny this write.
+  // deployed Supabase rules may allow reads there but deny this write.
   // Existing legacy data is still read by getProxyConfig() for migration.
   const data={...proxy};
   await CS.Firebase.setDoc(['users',uid,'proxy','config'],data,token);
@@ -284,11 +360,8 @@ async function removeSite(siteId){
   return{ok:true,site:next,sites:remaining};
 }
 function syncScopeHostname(hostname){
-  const host=String(hostname||'').replace(/^\./,'').trim().toLowerCase();
-  if(!host)return '';
-  const parts=host.split('.').filter(Boolean);
-  return parts.length>=3 ? parts.slice(-2).join('.') : host;
-}
+    return CS.Util.scopeHostname(hostname);
+  }
 function findManagedSiteForHostname(sites,hostname){
   const host=String(hostname||'').toLowerCase().replace(/^\./,'');
   if(!host)return null;
@@ -392,6 +465,30 @@ function persistedProxyConfig(raw,version,resetVersion,updatedAt){
   };
 }
 
+
+async function publishProxyRotationSignal(uid,proxyVersion,resetVersion,token){
+  const sites=await loadSites(token,uid).catch(()=>[]);
+  if(!Array.isArray(sites)||!sites.length)return{ok:true,sites:0};
+  const signalAt=CS.Util.now();
+  let sent=0;
+  for(const site of sites){
+    const latest=await CS.Firebase.getDoc(['sites',site.id,'sync','latest'],token).catch(()=>({exists:false,data:null}));
+    const d=latest.exists&&latest.data?latest.data:null;
+    await CS.Firebase.setDoc(['sites',site.id,'sync','latest'],{
+      subadminUid:uid,
+      version:Number(d?.version||0),
+      requiredProxyVersion:Number(proxyVersion||0),
+      requiredResetVersion:Number(resetVersion||0),
+      envelope:d?.envelope||{},
+      publishedAt:signalAt,
+      reason:`admin-proxy-rotation:${Number(proxyVersion||0)}`,
+      cookieFingerprint:d?.cookieFingerprint||null
+    },token).catch(()=>{});
+    sent++;
+  }
+  return{ok:true,sites:sent};
+}
+
 async function saveProxy(rawProxy){
   const me=await currentAdmin(true);
   const uid=me.session.uid;
@@ -405,9 +502,9 @@ async function saveProxy(rawProxy){
   const changed=!previousProxy || proxyIdentity(proxy)!==proxyIdentity(previousProxy);
 
   // Everything up to persistence is local. A proxy that is unchanged is
-  // never written to Firebase again.
+  // never written to Supabase again.
   await CS.Store.set({
-    activeProxyCredentials:{username:proxy.username,password:proxy.password},
+    activeProxyCredentials:{host:proxy.host,port:proxy.port,username:proxy.username,password:proxy.password},
     lastSavedProxyConfig:proxy,
     lastSavedProxySubadminUid:uid,
   }).catch(()=>{});
@@ -425,7 +522,7 @@ async function saveProxy(rawProxy){
     }
     await CS.Rules.applyNavigationPolicy([],{locked:false}).catch(()=>{});
     await CS.Store.set({
-      activeProxyCredentials:previousProxy?{username:previousProxy.username,password:previousProxy.password}:{username:proxy.username,password:proxy.password},
+      activeProxyCredentials:previousProxy?{host:previousProxy.host,port:previousProxy.port,username:previousProxy.username,password:previousProxy.password}:{host:proxy.host,port:proxy.port,username:proxy.username,password:proxy.password},
       lastSavedProxyConfig:previousProxy||proxy,
       lastSavedProxySubadminUid:uid,
       adminProxyError:reason
@@ -441,7 +538,7 @@ async function saveProxy(rawProxy){
       await CS.Proxy.apply(previousProxy).catch(()=>{});
       await CS.Rules.applyNavigationPolicy([],{locked:false}).catch(()=>{});
       await CS.Store.set({
-        activeProxyCredentials:{username:previousProxy.username,password:previousProxy.password},
+        activeProxyCredentials:{host:previousProxy.host,port:previousProxy.port,username:previousProxy.username,password:previousProxy.password},
         lastSavedProxyConfig:previousProxy,
         lastSavedProxySubadminUid:uid,
         adminProxyError:reason
@@ -454,12 +551,12 @@ async function saveProxy(rawProxy){
   }
 
   // Same endpoint/credentials: keep the successful proxy local and do not
-  // increment versions or touch Firebase.
+  // increment versions or touch Supabase.
   if(!changed){
     const localProxy={...proxy,healthy:true,ip:health.ip||'',lastError:'',lastCheckedAt:CS.Util.now()};
     await CS.Rules.applyNavigationPolicy([],{locked:false}).catch(()=>{});
     await CS.Store.set({
-      activeProxyCredentials:{username:proxy.username,password:proxy.password},
+      activeProxyCredentials:{host:proxy.host,port:proxy.port,username:proxy.username,password:proxy.password},
       lastSavedProxyConfig:localProxy,
       lastSavedProxySubadminUid:uid,
       adminProxyHealthHealthy:true
@@ -469,7 +566,7 @@ async function saveProxy(rawProxy){
   }
 
   // A genuinely different proxy is the only event that persists the proxy
-  // configuration/version to Firebase.
+  // configuration/version to Supabase.
   const proxyVersion=Math.max(Number(control.proxyVersion||0),Number(previous?.version||0))+1;
   const resetVersion=Math.max(Number(control.resetVersion||0),Number(previous?.resetVersion||0))+1;
   const persisted=persistedProxyConfig(proxy,proxyVersion,resetVersion,stamp);
@@ -484,7 +581,7 @@ async function saveProxy(rawProxy){
     await CS.Rules.applyNavigationPolicy([],{locked:false}).catch(()=>{});
     const reason=e?.message||String(e);
     await CS.Store.set({
-      activeProxyCredentials:previousProxy?{username:previousProxy.username,password:previousProxy.password}:{username:proxy.username,password:proxy.password},
+      activeProxyCredentials:previousProxy?{host:previousProxy.host,port:previousProxy.port,username:previousProxy.username,password:previousProxy.password}:{host:proxy.host,port:proxy.port,username:proxy.username,password:proxy.password},
       lastSavedProxyConfig:previousProxy||proxy,
       lastSavedProxySubadminUid:uid,
       adminProxyError:reason
@@ -504,7 +601,7 @@ async function saveProxy(rawProxy){
   const localProxy={...persisted,healthy:true,ip:health.ip||'',lastError:'',lastCheckedAt:CS.Util.now()};
   await CS.Rules.applyNavigationPolicy([],{locked:false}).catch(()=>{});
   await CS.Store.set({
-    activeProxyCredentials:{username:proxy.username,password:proxy.password},
+    activeProxyCredentials:{host:proxy.host,port:proxy.port,username:proxy.username,password:proxy.password},
     lastSavedProxyConfig:localProxy,
     lastSavedProxySubadminUid:uid,
     adminProxyHealthHealthy:true
@@ -512,6 +609,14 @@ async function saveProxy(rawProxy){
   await CS.Store.remove(['adminProxyLocked','adminProxyError']).catch(()=>{});
   await invalidateAdminRefreshCache();
   await CS.Store.remove(['adminProxyConfigCache','adminProxyConfigCacheAt','adminProxyConfigCacheUid']).catch(()=>{});
+
+  // Publish a second, durable signal through the existing site-sync snapshot.
+  // This is especially important for Main Admin-created hidden clients: they
+  // are intentionally invisible to the Admin's client list, but they still
+  // inherit this Admin's proxy and can read the managed site's control signal.
+  // The signal contains no new cookies; it only tells every inherited client
+  // that this concrete proxy version requires the normal browser-session reset.
+  await publishProxyRotationSignal(uid,proxyVersion,resetVersion,me.session.idToken).catch(()=>{});
   return{ok:true,health,proxy:localProxy,controlWarning};
 }
 
@@ -522,7 +627,7 @@ async function handleProxyError(details){
       adminProxyError:String(details?.error||details?.details||'Proxy error')
     }).catch(()=>{});
     // Proxy/network failure is local runtime state. Do not write it to
-    // Firestore and do not block all admin browsing.
+    // Supabase and do not block all admin browsing.
     await CS.Rules.applyNavigationPolicy([], {locked:false}).catch(()=>{});
   }finally{setTimeout(()=>{proxyErrorBusy=false},1000);}
 }
@@ -535,7 +640,12 @@ CS.Proxy.installProxyErrorListener(async details=>{
 
 async function ensureAdminProxyHealthAlarm(){
   if(!chrome.alarms?.create)return;
-  try{await chrome.alarms.create(PROXY_HEALTH_ALARM,{delayInMinutes:0.5,periodInMinutes:0.5});}catch{}
+  try{await chrome.alarms.create(PROXY_HEALTH_ALARM,{delayInMinutes:0.5,periodInMinutes:1});}catch{}
+}
+
+async function ensureSuspensionCheckAlarm(){
+  if(!chrome.alarms?.create)return;
+  try{await chrome.alarms.create(SUSPENSION_CHECK_ALARM,{delayInMinutes:0.5,periodInMinutes:1});}catch{}
 }
 async function adminProxyHealthTick(){
   if(adminProxyRecoveryPromise)return adminProxyRecoveryPromise;
@@ -555,8 +665,8 @@ async function adminProxyHealthTick(){
       const p=local.lastSavedProxyConfig;
       if(!p||p.mode!=='fixed_servers'||!String(p.host||'').trim()||!Number(p.port))return;
 
-      // Health checking stays local. Do NOT read/write Firestore every 30s.
-      // Firebase is only touched when the health state actually changes.
+      // Health checking stays local. Do NOT read/write Supabase every 30s.
+      // Supabase is only touched when the health state actually changes.
       await CS.Proxy.setActiveCredentials(p).catch(()=>{});
       await CS.Proxy.apply(p).catch(()=>{});
       const health=await CS.Proxy.test(p).catch(e=>({
@@ -586,7 +696,7 @@ async function adminProxyHealthTick(){
       }).catch(()=>{});
 
       // Health is local runtime state. Never publish transient proxy
-      // failures to Firestore and never lock the Admin browsing session.
+      // failures to Supabase and never lock the Admin browsing session.
       if(nextHealthy){
         await CS.Store.remove(['adminProxyLocked','adminProxyError']).catch(()=>{});
       }else{
@@ -603,6 +713,7 @@ async function adminProxyHealthTick(){
 }
 
 async function bootstrap(){
+  const suspension=await checkAdminSuspension({enforce:true}).catch(()=>null);if(suspension?.suspended)return{ok:true,...suspension};
   const raw=await CS.Auth.raw();const cache=await CS.Store.get(['adminSitesCache','assignedSiteCache','visibleClientCache','adminProxyLocked','adminProxyError','lockReason','adminCookieChangeEvent','lastSavedProxyConfig','adminProxyHealthHealthy','adminRefreshCache']).catch(()=>({}));
   const cachedRefreshProxy=cache.adminRefreshCache?.proxy||null;
   const savedProxy=cache.lastSavedProxyConfig||cachedRefreshProxy||null;
@@ -713,9 +824,27 @@ async function refreshAll({force=false}={}){
   try{return await refreshInFlight;}finally{refreshInFlight=null;}
 }
 
-chrome.runtime.onStartup.addListener(()=>{applyCachedProxyImmediately().catch(()=>{});ensureAdminProxyHealthAlarm().catch(()=>{});currentAdmin(false).then(async me=>{if(!me)return;const scan=await CS.Security.scan(await getSitesCached());if(scan.locked)return;await CS.Rules.applyNavigationPolicy([],{locked:false}).catch(()=>{});await refreshAll().catch(()=>{});}).catch(()=>{});});
-chrome.runtime.onInstalled.addListener(async()=>{await applyCachedProxyImmediately().catch(()=>{});await ensureAdminProxyHealthAlarm();const scan=await CS.Security.scan(await getSitesCached());if(!scan.locked){await CS.Rules.applyNavigationPolicy([],{locked:false}).catch(()=>{});await refreshAll().catch(()=>{});}});
-chrome.alarms?.onAlarm?.addListener(async alarm=>{if(alarm?.name===PROXY_HEALTH_ALARM)await adminProxyHealthTick().catch(()=>{});});
+
+async function applyLoggedOutNetworkLock(){
+  // Admin never blocks normal browser navigation. Only clear stale rules and
+  // reset the Admin proxy when logged out.
+  await CS.Rules.applyNavigationPolicy([],{locked:false}).catch(()=>{});
+  await CS.Proxy.clear().catch(()=>{});
+}
+
+async function enforceLoggedOutNetworkLock(){
+  // Kept for compatibility with older message paths, but Admin logout/install
+  // must never close or block the user's normal web tabs.
+  await applyLoggedOutNetworkLock();
+}
+
+async function applyStartupNetworkGate(){
+  // Admin never blocks normal websites. Clear any stale rules left by older builds.
+  await CS.Rules.applyNavigationPolicy([],{locked:false}).catch(()=>{});
+}
+chrome.runtime.onStartup.addListener(async()=>{await applyStartupNetworkGate();const suspension=await checkAdminSuspension({enforce:true}).catch(()=>null);if(suspension?.suspended)return;await applyCachedProxyImmediately().catch(()=>{});await ensureAdminProxyHealthAlarm().catch(()=>{});await ensureSuspensionCheckAlarm().catch(()=>{});const me=await currentAdmin(false).catch(()=>null);if(!me)return;const scan=await CS.Security.scan(await getSitesCached());if(scan.locked)return;await CS.Rules.applyNavigationPolicy([],{locked:false}).catch(()=>{});await refreshAll().catch(()=>{});});
+chrome.runtime.onInstalled.addListener(async(details)=>{if(details?.reason==='install'){await CS.Store.clear().catch(()=>{});await applyStartupNetworkGate();}if(details?.reason==='install'){await CS.Store.clear().catch(()=>{});}const suspension=await checkAdminSuspension({enforce:true}).catch(()=>null);if(suspension?.suspended)return;await applyCachedProxyImmediately().catch(()=>{});await ensureAdminProxyHealthAlarm();await ensureSuspensionCheckAlarm();const scan=await CS.Security.scan(await getSitesCached());if(!scan.locked){await CS.Rules.applyNavigationPolicy([],{locked:false}).catch(()=>{});await refreshAll().catch(()=>{});}});
+chrome.alarms?.onAlarm?.addListener(async alarm=>{if(alarm?.name===SUSPENSION_CHECK_ALARM){await checkAdminSuspension({enforce:true}).catch(()=>{});return;}if(alarm?.name===PROXY_HEALTH_ALARM)await adminProxyHealthTick().catch(()=>{});});
 chrome.management.onInstalled.addListener(async()=>{
   const bad=await CS.Security.unauthorizedExtensions().catch(()=>[]);
   if(!bad.length)return;
@@ -767,7 +896,7 @@ chrome.runtime.onMessage.addListener((msg,sender,sendResponse)=>{(async()=>{
     const fresh=await refreshAll({force:false});
     return{ok:true,profile:r.profile,...fresh};
   }
-  if(msg.type==='logout'){await CS.Auth.logout();await CS.Proxy.clear().catch(()=>{});await CS.Rules.applyNavigationPolicy([],{locked:false}).catch(()=>{});await CS.Store.remove(['adminSitesCache','adminSitesCacheAt','adminSitesCacheUid','assignedSiteCache','visibleClientCache','visibleClientCacheAt','visibleClientCacheUid','adminRefreshCache','adminRefreshCacheAt','adminRefreshCacheUid','selectedSiteId','activeProxyCredentials','lastSavedProxyConfig','lastSavedProxySubadminUid','adminProxyConfigCache','adminProxyConfigCacheAt','adminProxyConfigCacheUid','adminProxyLocked','adminProxyError','lockReason']);return{ok:true};}
+  if(msg.type==='logout'){await applyStartupNetworkGate();await CS.Auth.logout();await CS.Proxy.clear().catch(()=>{});await CS.Store.remove(['adminSitesCache','adminSitesCacheAt','adminSitesCacheUid','assignedSiteCache','visibleClientCache','visibleClientCacheAt','visibleClientCacheUid','adminRefreshCache','adminRefreshCacheAt','adminRefreshCacheUid','selectedSiteId','activeProxyCredentials','lastSavedProxyConfig','lastSavedProxySubadminUid','adminProxyConfigCache','adminProxyConfigCacheAt','adminProxyConfigCacheUid','adminProxyLocked','adminProxyError','lockReason']);return{ok:true};}
   if(msg.type==='refresh')return{ok:true,...(await refreshAll({force:false}))};
   if(msg.type==='refresh-users')return refreshAllClientBrowsers();
   if(msg.type==='add-current-site')return{ok:true,...(await addCurrentSite(msg.url))};
@@ -808,7 +937,7 @@ chrome.runtime.onMessage.addListener((msg,sender,sendResponse)=>{(async()=>{
     // Site assignment is repaired when a site is first created (or when the
     // explicit Add Current Website flow selects an existing site). Do not run
     // a full client query for every Share Login click; it can turn one push
-    // into dozens of extra Firebase reads and make the popup appear hung.
+    // into dozens of extra Supabase reads and make the popup appear hung.
     const result=await pushSnapshot(target.id,'manual',url,me,target);
     return{ok:true,site:target,result};
   }

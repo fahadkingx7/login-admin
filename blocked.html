@@ -1,2 +1,138 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cookie Sync • Profile Locked</title><style>:root{--bg:#f5f7fb;--card:#fff;--text:#172033;--muted:#667085;--danger:#b42318;--line:#e5e7eb}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at top,#fff1f2,#f8fafc 55%,#f5f7fb);font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--text);display:grid;place-items:center;padding:26px}.box{width:min(520px,100%);background:var(--card);border:1px solid var(--line);border-radius:24px;padding:30px;box-shadow:0 24px 70px rgba(15,23,42,.12);text-align:center}.icon{width:68px;height:68px;border-radius:20px;background:#fee2e2;color:var(--danger);display:grid;place-items:center;margin:0 auto 16px;font-size:31px;font-weight:900}.eyebrow{font-size:10px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:var(--danger)}h1{font-size:25px;margin:7px 0 8px;color:#991b1b}p{margin:0;color:var(--muted);font-size:13px;line-height:1.6}.reason{margin-top:15px;padding:12px 14px;background:#f8fafc;border:1px solid var(--line);border-radius:12px;font-size:12px;color:#344054}.btn{margin-top:18px;border:0;border-radius:12px;background:#4f46e5;color:#fff;padding:11px 18px;font-weight:800;cursor:pointer}.small{margin-top:13px;font-size:10px;color:#98a2b3}</style><style id="veefivee-footer-visibility">.veefivee-footer{position:fixed!important;left:0!important;right:0!important;bottom:0!important;margin:0!important;padding:12px 20px 14px!important;z-index:99999!important;background:rgba(245,247,251,.97)!important;border-top:1px solid #e5e7ef!important;box-shadow:0 -6px 18px rgba(15,23,42,.05)!important;}</style></head><body><main class="box"><div class="icon">!</div><div class="eyebrow">Cookie Sync Security</div><h1>PROFILE LOCKED</h1><p>This browser profile is temporarily locked and managed web access is disabled.</p><div id="reason" class="reason">An unauthorized extension or security condition was detected.</div><button id="check" class="btn">Check Again</button><div class="small">Remove the conflicting extension or fix the security condition, then check again.</div></main><script>const q=new URLSearchParams(location.search);document.getElementById('reason').textContent=q.get('reason')||'An unauthorized extension or security condition was detected.';document.getElementById('check').onclick=()=>chrome.runtime.sendMessage({type:'warning-check'}).then(r=>{if(r?.ok)location.href='about:blank';else document.getElementById('reason').textContent=r?.error||'The profile is still locked.'}).catch(()=>{document.getElementById('reason').textContent='Unable to contact the extension. Please reopen the extension.'});</script><footer class="veefivee-footer" style="box-sizing:border-box;width:100%;margin:40px auto 0;padding:16px 20px 18px;text-align:center;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px;font-weight:500;line-height:1.5;color:#6d4aff;letter-spacing:.1px;">Developed by 🌴<a href="https://veefivee.com" target="_blank" rel="noopener noreferrer" style="color:#6d4aff;text-decoration:none;font-weight:700;">VeeFivee</a></footer>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cookie Sync • Profile Locked</title><style id="apple-page">
+/* Full-page extension screens. Accent is set per brand. */
+:root{
+  --bg:#f5f5f7;
+  --card:#fff;
+  --text:#1d1d1f;
+  --muted:#6e6e73;
+  --faint:#86868b;
+  --accent:#0071e3;
+  --accent-hover:#0077ed;
+  --accent-press:#0066cc;
+  --accent-soft:rgba(0,113,227,.12);
+  --line:rgba(0,0,0,.08);
+  --good:#1d7f37;
+  --goodbg:#e8f7ec;
+  --danger:#d70015;
+  --danger-bg:#fff1f0;
+  --danger-line:rgba(215,0,21,.16);
+  --notice:#f5f5f7;
+  --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Segoe UI",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{min-height:100%;margin:0}
+body{
+  min-height:100vh;
+  background:var(--bg);
+  font-family:var(--font);
+  color:var(--text);
+  display:grid;
+  place-items:center;
+  padding:32px 20px 88px;
+  -webkit-font-smoothing:antialiased;
+}
+.box,.card{
+  width:min(560px,100%);
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:24px;
+  padding:40px 36px 32px;
+  box-shadow:0 1px 1px rgba(0,0,0,.03);
+  text-align:center;
+}
+.brand{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:28px}
+.brand-mark,.mark{
+  width:44px;height:44px;border-radius:14px;
+  background:var(--accent);color:#fff;
+  display:grid;place-items:center;
+  font-weight:600;font-size:20px;
+  box-shadow:none;
+}
+.brand-name{font-size:17px;font-weight:650;letter-spacing:-.02em}
+.icon{
+  width:64px;height:64px;border-radius:20px;
+  background:var(--accent-soft);color:var(--accent);
+  display:grid;place-items:center;
+  margin:0 auto 16px;
+  font-size:26px;font-weight:600;
+  border:0;
+}
+.eyebrow{
+  font-size:12px;font-weight:600;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--faint);
+}
+h1,.title{
+  font-size:32px;font-weight:650;line-height:1.12;
+  margin:8px 0 10px;letter-spacing:-.03em;
+}
+p,.text,.lead{margin:0;color:var(--muted);font-size:16px;line-height:1.5}
+.notice,.reason{
+  margin-top:22px;padding:16px 16px;
+  background:var(--notice);
+  border:0;border-radius:14px;
+  color:#3a3a3c;font-size:14px;line-height:1.5;text-align:left;
+}
+.notice strong{display:block;color:var(--text);font-size:14px;font-weight:650;margin-bottom:4px}
+a.btn,button,.btn{
+  display:flex;align-items:center;justify-content:center;
+  margin:24px auto 0;border:0;border-radius:14px;
+  background:var(--accent);color:#fff;
+  padding:0 22px;font-weight:600;font-size:16px;letter-spacing:-.015em;
+  text-decoration:none;width:100%;min-height:50px;
+  box-shadow:none;cursor:pointer;
+  font-family:var(--font);
+  transition:background .18s ease,transform .12s ease;
+}
+a.btn:hover,button:hover:not(:disabled),.btn:hover:not(:disabled){background:var(--accent-hover)}
+a.btn:active,button:active:not(:disabled){transform:scale(.985);background:var(--accent-press)}
+button:disabled{opacity:.55;cursor:default;transform:none}
+button:focus-visible,a.btn:focus-visible{outline:none;box-shadow:0 0 0 4px var(--accent-soft)}
+.small{margin-top:14px;font-size:12px;color:var(--faint);line-height:1.45}
+.status{
+  margin-top:18px;padding:14px 16px;
+  border:0;border-radius:14px;background:#f5f5f7;
+  font-size:14px;color:var(--text);
+}
+.failed{background:var(--danger-bg);color:var(--danger)}
+.spinner{
+  display:inline-block;width:14px;height:14px;
+  border:2px solid rgba(0,0,0,.12);border-top-color:var(--accent);
+  border-radius:50%;animation:spin .7s linear infinite;
+  vertical-align:-2px;margin-right:8px;
+}
+.hidden{display:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media(max-width:560px){
+  body{padding:18px 16px 88px}
+  .box,.card{padding:32px 20px 24px;border-radius:20px}
+  h1,.title{font-size:26px}
+  p,.text,.lead{font-size:15px}
+}
+body:has(.trucksmate-top-banner){
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:flex-start;
+  padding-top:0;
+}
+body:has(.trucksmate-top-banner) .trucksmate-top-banner{align-self:stretch;width:100%}
+body:has(.trucksmate-top-banner) .box,
+body:has(.trucksmate-top-banner) main{
+  margin:auto;
+}
+
+</style><style id="veefivee-footer-visibility">.veefivee-footer{
+  position:fixed!important;left:0!important;right:0!important;bottom:0!important;
+  margin:0!important;padding:13px 20px 14px!important;z-index:99999!important;
+  background:rgba(245,245,247,.9)!important;
+  backdrop-filter:saturate(180%) blur(16px)!important;
+  -webkit-backdrop-filter:saturate(180%) blur(16px)!important;
+  border-top:1px solid rgba(0,0,0,.06)!important;
+  box-shadow:none!important;
+  color:#6e6e73!important;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif!important;
+  font-size:12px!important;font-weight:500!important;letter-spacing:0!important;
+}
+.veefivee-footer a{color:var(--accent,#0071e3)!important;font-weight:600!important;text-decoration:none!important}
+.veefivee-footer a:hover{text-decoration:underline!important}</style><style id="login-purple-logo">.brand-mark,.logo,.mini-logo,.mark{background:linear-gradient(135deg,#5b45e8,#7440ee)!important;}</style></head><body><main class="box"><div class="icon">!</div><div class="eyebrow">Cookie Sync Security</div><h1>PROFILE LOCKED</h1><p>This browser profile is temporarily locked and managed web access is disabled.</p><div id="reason" class="reason">An unauthorized extension or security condition was detected.</div><button id="check" class="btn">Check Again</button><div class="small">Remove the conflicting extension or fix the security condition, then check again.</div></main><script src="blocked.js"></script><footer class="veefivee-footer" style="box-sizing:border-box;width:100%;margin:40px auto 0;padding:16px 20px 18px;text-align:center;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px;font-weight:500;line-height:1.5;color:#6d4aff;letter-spacing:.1px;">Developed by 🌴<a href="https://veefivee.com" target="_blank" rel="noopener noreferrer" style="color:#6d4aff;text-decoration:none;font-weight:700;">VeeFivee</a></footer>
 </body></html>
